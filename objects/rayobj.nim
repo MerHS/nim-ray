@@ -93,9 +93,20 @@ proc getRay* (s: Screen, x:float, y:float): Ray =
 proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:Object = nil): Col =
   # TODO: currObj check
   var tList = objList.map(proc(obj:Object): CollPoint = obj.collision(ray))
+
   # TODO: else check
   tList.sort(proc (t0, t1: CollPoint): int =
     if t0.t == -1: 1 elif t1.t == -1: 1 else: int(t0.t - t1.t))
+
+  # var hitted: Object
+  if tList[0].t == -1.0: # hit background
+    return (0.0, 0.0, 0.0)
+  elif tList[0].t == 0.0:
+    if tList.len == 1:
+      return (0.0, 0.0, 0.0)
+    # hitted = 
+
+  # return hitted.evalColor(l;kj)
   return (0.0, 0.0, 0.0)
 
 
