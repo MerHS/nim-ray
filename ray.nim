@@ -7,7 +7,8 @@ import math
 const width = 500
 const height = 500
 
-proc colToRgb (c: Col): Color {.inline.} =
+proc colToRgb (col: Col): Color {.inline.} =
+  let c = 255.0 * col
   return rgb(min(c.r.round, 255), min(c.g.round, 255), min(c.b.round, 255))
 
 var surf = newSurface(width, height)
@@ -40,8 +41,11 @@ let sphere0 =
 
 objList.add(sphere0)
 
-assert(Object(sphere0) == objList[0])
-
+discard """assert(Object(sphere0) == objList[0])
+let col00 = rayToColor(screen.getRay(0.0, 0.0), objList, lightList)
+echo repr(col00)
+let colmm = rayToColor(screen.getRay(0.5, 0.5), objList, lightList)
+echo repr(colmm)"""
 ## --- Generate BMP files ---
 for x in 0..(width - 1):
   for y in 0..(height - 1):
