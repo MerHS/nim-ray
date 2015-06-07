@@ -21,13 +21,25 @@ var objList = newSeq[Object]()
 var lightList = newSeq[Light]()
 
 ## --- Insert Lights
-lightList.add(AmbLight(intensity: 0.1))
-lightList.add(PointLight(intensity: 1.0, 
-                         point:vector3d(0.0, -10.0, 10.0),
-                         atten_coef:0.9))
+lightList.add(AmbLight(intensity: 0.6))
+discard """lightList.add(PointLight(intensity: 1.0, 
+                         point:vector3d(5.0, -5.0, 0.0),
+                         atten_coef:0.001))"""
+var way0 = vector3d(-1.0, 2.0, -1.0)
+way0.normalize()
+lightList.add(AreaLight(intensity:1.0, way:way0))
 
 ## --- Insert Object ---
-let mat_turq = 
+let mat_emerald = 
+  PhongMat (diffuse: (0.07568, 0.61424, 0.07568),
+            ambient: (0.0215, 0.1745, 0.0215),
+            specular: (0.633, 0.727811, 0.633),
+            shininess: 128 * 0.6,
+            trans_coeff: 0.5,
+            refrac_n: 1.566,
+            is_trans: true)
+
+let mat_turq =
   PhongMat (diffuse: (0.396, 0.74151, 0.69102),
             ambient: (0.1, 0.18725, 0.1745),
             specular: (0.297254, 0.30829, 0.306678),
@@ -37,19 +49,21 @@ let mat_turq =
             is_trans: false)
 
 let sphere0 = 
-  Sphere (radius:5.0, center:vector3d(0.0, 0.0, 0.0), material: mat_turq)
+  Sphere (radius:5.0, center:vector3d(0.0, 0.0, 0.0), material: mat_emerald)
 
 objList.add(sphere0)
 
-discard """assert(Object(sphere0) == objList[0])
-let col00 = rayToColor(screen.getRay(0.0, 0.0), objList, lightList)
-echo repr(col00)
-let colmm = rayToColor(screen.getRay(0.5, 0.5), objList, lightList)
-echo repr(colmm)"""
 ## --- Generate BMP files ---
 for x in 0..(width - 1):
   for y in 0..(height - 1):
     let rcol = rayToColor(screen.getRay(x/width, y/height), objList, lightList)
-    surf[x, y] = colToRgb (rcol)
+    try:
+      surf[x, y] = colToRgb (rcol)
+    except:
+      let ray = screen.getRay(x/width, y/height)
+      let col_p = sphere0.collision(ray)
+      #echo repr(lightList[1].lightColor(ray, col_p))
+      echo "x: ", x, " y: ", y, " col: ", rcol, " p: ", col_p.point
+      raise
 
 writeToBMP(surf, "ray.bmp")
