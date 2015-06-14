@@ -5,8 +5,9 @@ import algorithm
 import sdl, sdl_image
 import graphics
 
-const BOUND_MAX* = 10
+const BOUND_MAX* = 7
 const INTENSITY_MIN* = 0.0001
+const textBoxSize* = 28.0
 
 type 
   Col* = tuple[r:float, g:float, b:float]
@@ -18,14 +19,16 @@ type
 
 proc `*`* (c:Col, f:float): Col {.inline, noInit.} = (f*c.r, f*c.g, f*c.b)
 proc `*`* (f:float, c:Col): Col {.inline, noInit.} = (f*c.r, f*c.g, f*c.b)
+proc `*`* (c0:Col, c:Col): Col {.inline, noInit.} = (c0.r*c.r, c0.g*c.g, c0.b*c.b)
+proc `/`* (c:Col, f:float): Col {.inline, noInit.} = (c.r/f, c.g/f, c.b/f)
 proc `+`* (c0:Col, c1:Col): Col {.inline, noInit.} = (c0.r + c1.r, c0.g + c1.g, c0.b + c1.b)
 proc `+=`* (c0:var Col, c1:Col) {.inline, noInit.} = c0 = c0 + c1
 proc `$`* (c:Col): string {.inline, noInit.} = "(" & $(c.r) & ", " & $(c.g) & ", " & $(c.b) & ")"
 
-let texture = imgLoad("background.bmp")
-let textPf = graphics.Psurface(w:texture.w, h:texture.h, s:texture)
-let textBox = (o:vector3d(-50.0, -50.0, -50.0), u:vector3d(100.0, 0.0, 0.0),
-               v:vector3d(0.0, 100.0, 0.0), n:vector3d(0.0, 0.0, 100.0))
+let texture* = imgLoad("background.bmp")
+let textPf* = graphics.Psurface(w:texture.w, h:texture.h, s:texture)
+let textBox* = (o:vector3d(-textBoxSize/2, -textBoxSize/2, -textBoxSize/2), u:vector3d(textBoxSize, 0.0, 0.0),
+               v:vector3d(0.0, textBoxSize, 0.0), n:vector3d(0.0, 0.0, textBoxSize))
 
 type Ray* = ref object of RootObj
   center*: Vec
@@ -67,6 +70,8 @@ type CollPoint* = ref object of RootObj
   point*: Vec
   norm*: Vec
   obj*: Object
+
+proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:Object = nil): Col 
 
 method lightColor* (light:Light, ray: Ray, collPoint: CollPoint): Col =
   return light.intensity * Col((1.0, 1.0, 1.0))
@@ -140,12 +145,12 @@ method collision* (obj: Sphere, ray: Ray): CollPoint =
   let 
     t1 = (-ray.way.dot(e_c) + sqrt(discrement))/dd
     t0 = (-ray.way.dot(e_c) - sqrt(discrement))/dd
-  if t0 >= 0:
+  if t0 >= 0.001:
     let point = ray.center + t0 * ray.way
     var norm = point - obj.center 
     norm.normalize() 
     return CollPoint(t:t0, point: point, norm:norm, obj:obj)
-  elif t0 < 0 and t1 >= 0:
+  elif t0 < 0.001 and t1 >= 0:
     let point = ray.center + t1 * ray.way
     var norm = point - obj.center 
     norm.normalize() 
@@ -186,9 +191,48 @@ method isShadowed* (obj: Sphere, collPoint: CollPoint, objList:seq[Object], ligh
 method evalColor* (obj: Sphere, ray: Ray, collPoint: CollPoint, 
   objList:seq[Object], lightList:seq[Light]): Col =
   var ret_col: Col = (0.0, 0.0, 0.0)
+  
+  # Phong Illumination
   for light in lightList:
     if not obj.isShadowed(collPoint, objList, light):
       ret_col += light.lightColor(ray, collPoint)
+  
+  if ray.bound_no >= BOUND_MAX: return ret_col
+
+  # Specular Reflection
+  var ref_ray = Ray(center: collPoint.point, way: ray.way - 2*ray.way.dot(collPoint.norm) * collPoint.norm, 
+                    refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  
+  #if obj.material.is_trans == false:
+  ret_col += obj.material.specular * ref_ray.rayToColor(objList, lightList, obj)
+  discard """else:  # Specular Refraction
+    var ray_norm = ray.way
+    ray_norm.normalize()
+    var theta: float
+    var refrac_way: Vec
+    var refrac_n: float
+    var k: Col = (1.0, 1.0, 1.0)
+    let dn = ray_norm.dot(collPoint.norm)
+    if dn < 0: # extern to internal
+      refrac_n = obj.material.refrac_n
+      theta = -ray_norm.dot(collPoint.norm)
+      refrac_way = (ray_norm - collPoint.norm*dn)/refrac_n - collPoint.norm * sqrt(1 - (1 - dn*dn) / (refrac_n*refrac_n))
+      refrac_way.normalize()
+    elif (ray.refrac_n * ray.refrac_n) * (1 - dn*dn) > 1 :
+      return ret_col + obj.material.specular * ref_ray.rayToColor(objList, lightList, obj) 
+    else:
+      k = k * exp(-0.5*collPoint.t)
+      refrac_n = ray.refrac_n
+      refrac_way = refrac_n*(ray_norm - collPoint.norm*dn) - collPoint.norm * sqrt(1 - (refrac_n*refrac_n) * (1 - dn*dn))
+      refrac_n = 1.0 
+      refrac_way.normalize()
+      theta = refrac_way.dot(collPoint.norm)
+    let tcoeff = obj.material.trans_coeff
+    let r = 0.0 # tcoeff + (1 - tcoeff) * (1 - theta).pow(5)
+    let refrac_ray = Ray(center: collPoint.point, way: refrac_way, refrac_n: refrac_n, bound_no: ray.bound_no + 1)
+    ret_col +=
+      k * (r * obj.material.specular * ref_ray.rayToColor(objList, lightList, obj) +
+           (1 - r) * obj.material.specular * refrac_ray.rayToColor(objList, lightList, obj))"""
   return ret_col
 
 ## --- procedures ---
@@ -217,7 +261,7 @@ proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction
   var collp = CollPoint()
   collp.obj = nil
 
-  if ret_ts.ut0 > 0.0: # left
+  if ret_ts.ut0 > 0.0: # front
     let 
       coll = ray.center + ret_ts.ut0 * ray.way - bbox.o
       collv = coll.dot(bbox.v)
@@ -227,9 +271,9 @@ proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction
     collp.point = coll + bbox.o 
     collp.t = ret_ts.ut0
     collp.norm = -bbox.u
-    ret_dir = left
+    ret_dir = front
 
-  if ret_ts.ut1 > 0.0: # right
+  if ret_ts.ut1 > 0.0: # back
     let
       coll = ray.center + ret_ts.ut1 * ray.way - (bbox.o + bbox.u)
       collv = coll.dot(bbox.v)
@@ -240,9 +284,9 @@ proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction
       collp.point = coll + (bbox.o + bbox.u)
       collp.t = ret_ts.ut1
       collp.norm = bbox.u
-      ret_dir = right
+      ret_dir = back
 
-  if ret_ts.vt0 > 0.0: # down
+  if ret_ts.vt0 > 0.0: # left
     let 
       coll = ray.center + ret_ts.vt0 * ray.way - bbox.o
       collu = coll.dot(bbox.u)
@@ -253,11 +297,11 @@ proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction
       collp.point = coll + bbox.o
       collp.t = ret_ts.vt0
       collp.norm = -bbox.v
-      ret_dir = down
+      ret_dir = left
 
-  if ret_ts.vt1 > 0.0: # up
+  if ret_ts.vt1 > 0.0: # right
     let 
-      coll = ray.center + ret_ts.ut1 * ray.way - (bbox.o + bbox.v)
+      coll = ray.center + ret_ts.vt1 * ray.way - (bbox.o + bbox.v)
       collu = coll.dot(bbox.u)
       colln = coll.dot(bbox.n)
     if (not (0 <= collu and collu <= llu)) or (not (0 <= colln and colln <= lln)):
@@ -266,11 +310,11 @@ proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction
       collp.point = coll + (bbox.o + bbox.v)
       collp.t = ret_ts.vt1
       collp.norm = bbox.v
-      ret_dir = up
+      ret_dir = right
 
-  if ret_ts.nt0 > 0.0: # front
+  if ret_ts.nt0 > 0.0: # down
     let 
-      coll = ray.center + ret_ts.ut0 * ray.way - bbox.o
+      coll = ray.center + ret_ts.nt0 * ray.way - bbox.o
       collv = coll.dot(bbox.v)
       collu = coll.dot(bbox.u)
     if (not (0 <= collv and collv <= llv)) or (not (0 <= collu and collu <= llu)):
@@ -279,11 +323,11 @@ proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction
       collp.point = coll + bbox.o
       collp.t = ret_ts.nt0
       collp.norm = -bbox.n
-      ret_dir = front
+      ret_dir = down
 
-  if ret_ts.nt1 > 0.0: # back
+  if ret_ts.nt1 > 0.0: # up
     let 
-      coll = ray.center + ret_ts.ut1 * ray.way - (bbox.o + bbox.n)
+      coll = ray.center + ret_ts.nt1 * ray.way - (bbox.o + bbox.n)
       collv = coll.dot(bbox.v)
       collu = coll.dot(bbox.u)
     if (not (0 <= collv and collv <= llv)) or (not (0 <= collu and collu <= llu)):
@@ -292,19 +336,48 @@ proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction
       collp.point = coll + (bbox.o + bbox.n)
       collp.t = ret_ts.nt1
       collp.norm = bbox.n
-      ret_dir = back
+      ret_dir = up
 
   if collp.t == 0.0: 
     return (nil, front)
   collp.norm.normalize()
   return (collp, ret_dir)
 
-proc rayToBackColor* (ray: Ray): Col {.inline.} =
-  let colPos = boxCollide(textBox, ray)
-  if colPos.dir == front:
-    return (0.0, 0.0, 0.1)
-  #if colPos.point.x == -50.0
-  return (0.1, 0.0, 0.0)
+let textSphere = Sphere(radius:sqrt(0.75 * textBoxSize * textBoxSize), center:vector3d(0.0, 0.0, 0.0), material:nil)
+
+proc rayToBackColor* (ray: Ray): Col =
+  let colpoint = textSphere.collision(ray)
+  var pixelDir: Vec
+  var pixelCol: tuple[r, g, b: range[0 .. 255]]
+  var dir: Direction
+  if colpoint == nil:
+    return (0.2, 0.5, 0.5)
+  var colWay = colpoint.point
+  colWay.normalize()
+  let colp = textBox.boxCollide(newRay(vector3d(0.0, 0.0, 0.0), colWay))
+  if colp.colp == nil:
+    return (0.2, 0.5, 0.5)
+
+  if colp.dir == front:
+    pixelDir = (colp.colp.point - textBox.o) / textBoxSize
+    pixelCol = textPf[int(256 * pixelDir.y) + 256, 255 - int(256 * pixelDir.z)].extractRGB()
+  elif colp.dir == back:
+    pixelDir = (colp.colp.point - (textBox.o + textBox.u)) / textBoxSize
+    pixelCol = textPf[int(256 * pixelDir.y) + 256, 512 + int(256 * pixelDir.z)].extractRGB()
+  elif colp.dir == left:
+    pixelDir = (colp.colp.point - textBox.o) / textBoxSize
+    pixelCol = textPf[256 - int(256 * pixelDir.z), 257 + int(256 * pixelDir.x)].extractRGB()
+  elif colp.dir == right:
+    pixelDir = (colp.colp.point - (textBox.o + textBox.v)) / textBoxSize
+    pixelCol = textPf[512 + int(256 * pixelDir.z), 257 + int(256 * pixelDir.x)].extractRGB()
+  elif colp.dir == up:
+    pixelDir = (colp.colp.point - (textBox.o + textBox.n)) / textBoxSize
+    pixelCol = textPf[1023 - int(256 * pixelDir.y), 257 + int(256 * pixelDir.x)].extractRGB()
+  elif colp.dir == down:
+    pixelDir = (colp.colp.point - textBox.o) / textBoxSize
+    pixelCol = textPf[int(256 * pixelDir.y) + 256, 257 + int(256 * pixelDir.x)].extractRGB()
+
+  return (r:pixelCol.r/255, g:pixelCol.g/255, b:pixelCol.b/255)
 
 proc newScreen* (origin: Vec, x: Vec, y: Vec): Screen {.inline.} =
   var norm = x.cross(y)
@@ -317,7 +390,13 @@ proc newRay* (center: Vec, way: Vec): Ray =
 proc getRay* (s: Screen, x:float, y:float): Ray {.inline.} =
   return newRay(s.origin + x * s.x + y * s.y, s.norm)
 
-proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:Object = nil): Col {.inline.} =
+proc getRay* (fs: Screen, bs:Screen, x:float, y:float): Ray {.inline.} = 
+  let newCenter = fs.origin + x * fs.x + y * fs.y
+  var newWay = bs.origin + x*bs.x + y*bs.y - newCenter
+  newWay.normalize()
+  return newRay(newCenter, newWay)
+
+proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:Object = nil): Col =
   var tList = objList.map(proc(obj:Object): CollPoint = 
     if obj == currObj: nil
     else: obj.collision(ray))
@@ -330,7 +409,7 @@ proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:O
     return rayToBackColor(ray)
   else:
     hitPoint = tlist[0]
-
+  #let rayPlus = Ray(center: ray.center, way: ray.way, refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
   return hitPoint.obj.evalColor(ray, hitPoint, objList, lightList)
 
 
