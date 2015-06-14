@@ -73,6 +73,7 @@ type CollPoint* = ref object of RootObj
   obj*: Object
 
 proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:Object = nil): Col 
+proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction]
 
 method lightColor* (light:Light, ray: Ray, collPoint: CollPoint): Col =
   return light.intensity * Col((1.0, 1.0, 1.0))
@@ -125,12 +126,77 @@ type PolyObject* = ref object of Object
   nmap*: seq[Vec]
   bbox*: BoundBox
 
-method collision* (obj: PolyObject, ray: Ray): CollPoint = nil
-method isShadowed* (obj: PolyObject, collPoint: CollPoint, light:Light): bool = false
+method collision* (obj: PolyObject, ray: Ray): CollPoint = 
+  var colp = obj.bbox.boxCollide(ray).colp
+  if colp != nil:
+    colp.obj = obj
+    return colp
+  else: return nil
+
+method isShadowed* (obj: PolyObject, collPoint: CollPoint, objList:seq[Object], light:Light): bool =
+  if light of AmbLight:
+    return false
+  elif light of PointLight:
+    var lightWay = PointLight(light).point - collPoint.point
+    if lightWay.dot(collPoint.norm) < 0:
+      return true
+    elif len(objList) < 2: # only obj is in objList
+      return false
+    lightWay.normalize()
+    let lightRay = newRay(collPoint.point, lightWay)
+    for otherObj in objList:
+      if otherObj == obj: continue
+      if otherObj.collision(lightRay) != nil: return true
+    return false
+  elif light of AreaLight: 
+    var lightWay = AreaLight(light).way
+    if lightWay.dot(collPoint.norm) < 0:
+      return true
+    elif len(objList) < 2: # only obj is in objList
+      return false
+    lightWay.normalize()
+    let lightRay = newRay(collPoint.point, lightWay)
+    for otherObj in objList:
+      if otherObj == obj: continue
+      if otherObj.collision(lightRay) != nil: return true
+    return false
+  else:
+    return true
+
 method evalColor* (obj: PolyObject, ray: Ray, collPoint: CollPoint, 
   objList:seq[Object], lightList:seq[Light]): Col =
-  (0.0, 0.0, 0.0)
-
+  var ret_col: Col = (0.0, 0.0, 0.0)
+  
+  # Phong Illumination
+  for light in lightList:
+    if not obj.isShadowed(collPoint, objList, light):
+      ret_col += light.lightColor(ray, collPoint)
+  
+  if ray.bound_no >= BOUND_MAX: return ret_col
+  let ref_way = ray.way - 2*ray.way.dot(collPoint.norm) * collPoint.norm
+  let (ux_seed, uy_seed) = (random(1.0), random(1.0))
+  var u = vector3d(ux_seed, uy_seed, -(ref_way.x * ux_seed + ref_way.y * uy_seed)/ref_way.z)
+  var v = ref_way.cross(u)
+  u.normalize()
+  v.normalize()
+  # Specular Reflection
+  #let ref_ray1 = Ray(center: collPoint.point, way: ref_way + PERTUBE * ((0.5 - random(1.0)) * u + (0.5 - random(1.0)) * v), 
+  #                   refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  let ref_ray1 = Ray(center: collPoint.point, way: ref_way + PERTUBE * (random(0.5) * u + random(0.5) * v), 
+                    refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  let ref_ray2 = Ray(center: collPoint.point, way: ref_way + PERTUBE * (random(0.5) * u + -random(0.5) * v), 
+                    refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  let ref_ray3 = Ray(center: collPoint.point, way: ref_way + PERTUBE * (-random(0.5) * u + random(0.5) * v), 
+                    refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  let ref_ray4 = Ray(center: collPoint.point, way: ref_way + PERTUBE * (-random(0.5) * u + -random(0.5) * v), 
+                    refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  #if obj.material.is_trans == false:
+  #ret_col += obj.material.specular * ref_ray.rayToColor(objList, lightList, obj)
+  ret_col += obj.material.specular * (ref_ray1.rayToColor(objList, lightList, obj) +
+                                      ref_ray2.rayToColor(objList, lightList, obj) +
+                                      ref_ray3.rayToColor(objList, lightList, obj) +
+                                      ref_ray4.rayToColor(objList, lightList, obj)) / 4.0
+  return ret_col
 
 type Sphere* = ref object of Object
   radius*: float
@@ -412,6 +478,22 @@ proc getRay* (fs: Screen, bs:Screen, x:float, y:float): Ray {.inline.} =
   var newWay = bs.origin + x*bs.x + y*bs.y - newCenter
   newWay.normalize()
   return newRay(newCenter, newWay)
+
+proc depthColor* (fs:Screen, bs:Screen, x:float, y:float, 
+  objList:seq[Object], lightList:seq[Light]): Col =
+  var rcol: Col = (0.0, 0.0, 0.0)
+  let newTarget = (fs.origin + x * fs.x + y * fs.y + bs.origin + x * bs.x + y * bs.y) / 2.0
+  var newWay: Vec
+  var newCenter: Vec
+
+  for _ in 0..3:
+    newCenter = fs.origin + (x + random(0.01)) * fs.x + (y + random(0.01)) * fs.y
+    newWay = newTarget - newCenter
+    newWay.normalize()
+    rcol += rayToColor(newRay(newCenter, newWay), objList, lightList)
+
+  rcol = rcol / 4.0
+  return rcol
 
 proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:Object = nil): Col =
   var tList = objList.map(proc(obj:Object): CollPoint = 

@@ -4,8 +4,8 @@ import objects.rayobj
 import basic3d
 import math
 
-const width = 500
-const height = 500
+const width = 800
+const height = 800
 const winv = 0.5/width
 const hinv = 0.5/height
 
@@ -46,6 +46,24 @@ let mat_emerald =
             refrac_n: 1.566,
             is_trans: true)
 
+let mat_ruby =
+  PhongMat (diffuse: (0.61424, 0.04136, 0.04136),
+            ambient: (0.1745, 0.01175, 0.01175),
+            specular: (0.727811, 0.626959, 0.626959),
+            shininess: 128 * 0.6,
+            trans_coeff: (0.566 * 0.566)/(2.566 * 2.566),
+            refrac_n: 1.566,
+            is_trans: true)
+
+let mat_chrome =
+  PhongMat (diffuse: (0.4, 0.4, 0.4),
+            ambient: (0.25, 0.25, 0.25),
+            specular: (0.774597, 0.774597, 0.774597),
+            shininess: 128 * 0.6,
+            trans_coeff: (0.566 * 0.566)/(2.566 * 2.566),
+            refrac_n: 1.566,
+            is_trans: false)
+
 let mat_turq =
   PhongMat (diffuse: (0.396, 0.74151, 0.69102),
             ambient: (0.1, 0.18725, 0.1745),
@@ -56,40 +74,63 @@ let mat_turq =
             is_trans: false)
 
 let sphere0 = 
-  Sphere (radius:5.0, center:vector3d(0.0, 0.0, 0.0), material: mat_emerald)
+  Sphere (radius:4.0, center:vector3d(0.0, 0.0, 0.0), material: mat_emerald)
 let sphere1 =
-  Sphere (radius:2.0, center:vector3d(0.0, 8.0, 0.0), material: mat_turq)
+  Sphere (radius:2.0, center:vector3d(5.0, 5.0, -2.0), material: mat_turq)
+let sphere2 =
+  Sphere (radius:1.0, center:vector3d(0.0, -5.0, -3.0), material: mat_ruby)
 
+var tetra = PolyObject(poly_vec: @[(0u, 0u, 0u, 0u, 0u, 0u)],
+                      vmap: @[vector3d(0.0, -6.0, 0.0)], 
+                      nmap: @[vector3d(0.0, -6.0, 0.0)], 
+                      bbox: (o:vector3d(-9.0, -9.0, -7.0),
+                   u:vector3d(18.0, 0.0, 0.0),
+                   v:vector3d(0.0, 18.0, 0.0),
+                   n:vector3d(0.0, 0.0, 1.0)),
+                   material: mat_chrome)
 discard """let tetra =
-  PolyObject(poly_vec:newSeq((),
-                             (),
-                             (),
-                             ()),
-             vmap:newSeq(vector3d(), vector3d(),
-                         vector3d(), vector3d()),
-             nmap:newSeq(vector3d(), vector3d(),
-                         vector3d(), vector3d()),
-             bbox:(o:vector3d(),
-                   u:vector3d(),
-                   v:vector3d(),
-                   n:vector3d()))"""
+  PolyObject (poly_vec:@[(0, 1, 2, 0, 1, 2),
+                        (1, 2, 3, 1, 2, 3),
+                        (0, 2, 3, 0, 2, 3),
+                        (0, 1, 3, 0, 1, 3)],
+             vmap:@[vector3d(0.0, -6.0, 0.0), vector3d(0.0, -7.0, 0.0),
+                    vector3d(1.0, -6.5, 0.0), vector3d(0.5, 6.5, 1.0)],
+             nmap:@[vector3d(0.0, 1.0, 0.0), vector3d(0.0, -1.0, 0.0),
+                    vector3d(1.0, 0.0, 0.0), vector3d(0.0, 0.0, 1.0)],
+             bbox:(o:vector3d(0.0, -7.0, 0.0),
+                   u:vector3d(1.0, 0.0, 0.0),
+                   v:vector3d(0.0, 1.0, 0.0),
+                   n:vector3d(0.0, 0.0, 0.0)),
+             material: mat_turq)"""
 
 objList.add(sphere0)
 objList.add(sphere1)
+objList.add(tetra)
+objList.add(sphere2)
 
 ## --- Generate BMP files ---
 for x in 0..(width - 1):
   for y in 0..(height - 1):
-    #let rcol = rayToColor(screen.getRay(backScreen, x/width, y/height), objList, lightList)
-    # TODO: No Discard Anti Aliasing
-    let
-      rcol0 = rayToColor(screen.getRay(backScreen, x/width + random(winv), y/height + random(hinv)), objList, lightList)
+    var
+      rcol0: Col
+      rcol1: Col
+      rcol2: Col
+      rcol3: Col 
+      rcol: Col = (0.0, 0.0, 0.0)
+    for t in 0..10:
+      sphere2.center.z = -1.0 - 0.02 * float(t)*float(t)
+      discard """rcol0 = rayToColor(screen.getRay(backScreen, x/width + random(winv), y/height + random(hinv)), objList, lightList)
       rcol1 = rayToColor(screen.getRay(backScreen, x/width + winv + random(winv), y/height + random(hinv)), objList, lightList)
       rcol2 = rayToColor(screen.getRay(backScreen, x/width + random(winv), y/height + hinv + random(hinv)), objList, lightList)
-      rcol3 = rayToColor(screen.getRay(backScreen, x/width + winv + random(winv), y/height + hinv +random(hinv)), objList, lightList)
-      rcol = (r:(rcol0.r + rcol1.r + rcol2.r + rcol3.r) / 4,
-              g:(rcol0.g + rcol1.g + rcol2.g + rcol3.g) / 4,
-              b:(rcol0.b + rcol1.b + rcol2.b + rcol3.b) / 4)
+      rcol3 = rayToColor(screen.getRay(backScreen, x/width + winv + random(winv), y/height + hinv + random(hinv)), objList, lightList)"""
+      rcol0 = depthColor(screen, backScreen, x/width + random(winv), y/height + random(hinv), objList, lightList)
+      rcol1 = depthColor(screen, backScreen, x/width + winv + random(winv), y/height + random(hinv), objList, lightList)
+      rcol2 = depthColor(screen, backScreen, x/width + random(winv), y/height + hinv + random(hinv), objList, lightList)
+      rcol3 = depthColor(screen, backScreen, x/width + winv + random(winv), y/height + hinv + random(hinv), objList, lightList)
+      rcol += (r:(rcol0.r + rcol1.r + rcol2.r + rcol3.r) / 4,
+               g:(rcol0.g + rcol1.g + rcol2.g + rcol3.g) / 4,
+               b:(rcol0.b + rcol1.b + rcol2.b + rcol3.b) / 4)
+    rcol = rcol / 10.0
     try:
       surf[x, y] = colToRgb (rcol)
     except:
