@@ -2,6 +2,8 @@ import basic3d
 import colors
 import math
 import algorithm
+import sdl, sdl_image
+import graphics
 
 const BOUND_MAX* = 10
 const INTENSITY_MIN* = 0.0001
@@ -11,12 +13,19 @@ type
   Vec* = TVector3d
   BoundBox* = tuple[o:Vec, u:Vec, v:Vec, n:Vec]
   Polygon* = tuple[ai:uint, bi:uint, ci:uint, ani:uint, bni:uint, cni:uint]
+  Direction* = enum 
+    front, back, left, right, up, down
 
 proc `*`* (c:Col, f:float): Col {.inline, noInit.} = (f*c.r, f*c.g, f*c.b)
 proc `*`* (f:float, c:Col): Col {.inline, noInit.} = (f*c.r, f*c.g, f*c.b)
 proc `+`* (c0:Col, c1:Col): Col {.inline, noInit.} = (c0.r + c1.r, c0.g + c1.g, c0.b + c1.b)
 proc `+=`* (c0:var Col, c1:Col) {.inline, noInit.} = c0 = c0 + c1
 proc `$`* (c:Col): string {.inline, noInit.} = "(" & $(c.r) & ", " & $(c.g) & ", " & $(c.b) & ")"
+
+let texture = imgLoad("background.bmp")
+let textPf = graphics.Psurface(w:texture.w, h:texture.h, s:texture)
+let textBox = (o:vector3d(-50.0, -50.0, -50.0), u:vector3d(100.0, 0.0, 0.0),
+               v:vector3d(0.0, 100.0, 0.0), n:vector3d(0.0, 0.0, 100.0))
 
 type Ray* = ref object of RootObj
   center*: Vec
@@ -69,9 +78,9 @@ method lightColor* (light:AreaLight, ray:Ray, collPoint: CollPoint): Col =
   let 
     mat = collPoint.obj.material
     light_cos = abs(light.way.dot(collPoint.norm))
-    ref_ray = light.way + 2 * light_cos * collPoint.norm
+    ref_ray = -light.way + 2 * light_cos * collPoint.norm
   var ret_col = mat.diffuse * (light.intensity * light_cos)
-  let spec_cos = -ref_ray.dot(ray.way)
+  let spec_cos = ref_ray.dot(-ray.way)
   if spec_cos > 0:
     ret_col += mat.specular * (light.intensity * spec_cos.pow(mat.shininess))
   return ret_col
@@ -160,7 +169,7 @@ method isShadowed* (obj: Sphere, collPoint: CollPoint, objList:seq[Object], ligh
       if otherObj.collision(lightRay) != nil: return true
     return false
   elif light of AreaLight: 
-    var lightWay = -AreaLight(light).way
+    var lightWay = AreaLight(light).way
     if lightWay.dot(collPoint.norm) < 0:
       return true
     elif len(objList) < 2: # only obj is in objList
@@ -182,10 +191,120 @@ method evalColor* (obj: Sphere, ray: Ray, collPoint: CollPoint,
       ret_col += light.lightColor(ray, collPoint)
   return ret_col
 
-
 ## --- procedures ---
-proc rayToBackColor* (ray: Ray): Col =
-  return (0.0, 0.0, 0.0)
+
+proc boxCollide* (bbox: BoundBox, ray: Ray): tuple[colp:CollPoint, dir:Direction] =
+  let
+    llu = bbox.u.sqrLen()
+    llv = bbox.v.sqrLen()
+    lln = bbox.n.sqrLen()
+    p_o = ray.center - bbox.o
+    ux = bbox.u.dot(ray.way)
+    vx = bbox.v.dot(ray.way)
+    nx = bbox.n.dot(ray.way)
+  var ret_ts = (ut0: 0.0, ut1: 0.0, vt0: 0.0, vt1: 0.0, nt0: 0.0, nt1: 0.0)
+  var ret_dir = front
+  if ux != 0.0:
+    ret_ts.ut0 = -(bbox.u.dot(p_o)) / ux
+    ret_ts.ut1 = -(bbox.u.dot(p_o) - llu) / ux
+  if vx != 0.0:
+    ret_ts.vt0 = -(bbox.v.dot(p_o)) / vx
+    ret_ts.vt1 = -(bbox.v.dot(p_o) - llv) / vx
+  if nx != 0.0:
+    ret_ts.nt0 = -(bbox.n.dot(p_o)) / nx
+    ret_ts.nt1 = -(bbox.n.dot(p_o) - lln) / nx
+
+  var collp = CollPoint()
+  collp.obj = nil
+
+  if ret_ts.ut0 > 0.0: # left
+    let 
+      coll = ray.center + ret_ts.ut0 * ray.way - bbox.o
+      collv = coll.dot(bbox.v)
+      colln = coll.dot(bbox.n)
+    if (not (0 <= collv and collv <= llv)) or (not (0 <= colln and colln <= lln)):
+      ret_ts.ut0 = 0.0
+    collp.point = coll + bbox.o 
+    collp.t = ret_ts.ut0
+    collp.norm = -bbox.u
+    ret_dir = left
+
+  if ret_ts.ut1 > 0.0: # right
+    let
+      coll = ray.center + ret_ts.ut1 * ray.way - (bbox.o + bbox.u)
+      collv = coll.dot(bbox.v)
+      colln = coll.dot(bbox.n)
+    if (not (0 <= collv and collv <= llv)) or (not (0 <= colln and colln <= lln)):
+      ret_ts.ut1 = 0.0
+    elif collp.t == 0.0 or collp.t > ret_ts.ut1:
+      collp.point = coll + (bbox.o + bbox.u)
+      collp.t = ret_ts.ut1
+      collp.norm = bbox.u
+      ret_dir = right
+
+  if ret_ts.vt0 > 0.0: # down
+    let 
+      coll = ray.center + ret_ts.vt0 * ray.way - bbox.o
+      collu = coll.dot(bbox.u)
+      colln = coll.dot(bbox.n)
+    if (not (0 <= collu and collu <= llu)) or (not (0 <= colln and colln <= lln)):
+      ret_ts.vt0 = 0.0
+    elif collp.t == 0.0 or collp.t > ret_ts.vt0:
+      collp.point = coll + bbox.o
+      collp.t = ret_ts.vt0
+      collp.norm = -bbox.v
+      ret_dir = down
+
+  if ret_ts.vt1 > 0.0: # up
+    let 
+      coll = ray.center + ret_ts.ut1 * ray.way - (bbox.o + bbox.v)
+      collu = coll.dot(bbox.u)
+      colln = coll.dot(bbox.n)
+    if (not (0 <= collu and collu <= llu)) or (not (0 <= colln and colln <= lln)):
+      ret_ts.vt1 = 0.0
+    elif collp.t == 0.0 or collp.t > ret_ts.vt1:
+      collp.point = coll + (bbox.o + bbox.v)
+      collp.t = ret_ts.vt1
+      collp.norm = bbox.v
+      ret_dir = up
+
+  if ret_ts.nt0 > 0.0: # front
+    let 
+      coll = ray.center + ret_ts.ut0 * ray.way - bbox.o
+      collv = coll.dot(bbox.v)
+      collu = coll.dot(bbox.u)
+    if (not (0 <= collv and collv <= llv)) or (not (0 <= collu and collu <= llu)):
+      ret_ts.nt0 = 0.0
+    elif collp.t == 0.0 or collp.t > ret_ts.nt0:
+      collp.point = coll + bbox.o
+      collp.t = ret_ts.nt0
+      collp.norm = -bbox.n
+      ret_dir = front
+
+  if ret_ts.nt1 > 0.0: # back
+    let 
+      coll = ray.center + ret_ts.ut1 * ray.way - (bbox.o + bbox.n)
+      collv = coll.dot(bbox.v)
+      collu = coll.dot(bbox.u)
+    if (not (0 <= collv and collv <= llv)) or (not (0 <= collu and collu <= llu)):
+      ret_ts.nt1 = 0.0
+    elif collp.t == 0.0 or collp.t > ret_ts.nt1:
+      collp.point = coll + (bbox.o + bbox.n)
+      collp.t = ret_ts.nt1
+      collp.norm = bbox.n
+      ret_dir = back
+
+  if collp.t == 0.0: 
+    return (nil, front)
+  collp.norm.normalize()
+  return (collp, ret_dir)
+
+proc rayToBackColor* (ray: Ray): Col {.inline.} =
+  let colPos = boxCollide(textBox, ray)
+  if colPos.dir == front:
+    return (0.0, 0.0, 0.1)
+  #if colPos.point.x == -50.0
+  return (0.1, 0.0, 0.0)
 
 proc newScreen* (origin: Vec, x: Vec, y: Vec): Screen {.inline.} =
   var norm = x.cross(y)
@@ -195,16 +314,16 @@ proc newScreen* (origin: Vec, x: Vec, y: Vec): Screen {.inline.} =
 proc newRay* (center: Vec, way: Vec): Ray =
   return Ray(center: center, way: way, refrac_n: 1.0, bound_no: 0)
 
-proc getRay* (s: Screen, x:float, y:float): Ray =
+proc getRay* (s: Screen, x:float, y:float): Ray {.inline.} =
   return newRay(s.origin + x * s.x + y * s.y, s.norm)
 
-proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:Object = nil): Col =
+proc rayToColor* (ray: Ray, objList:seq[Object], lightList:seq[Light], currObj:Object = nil): Col {.inline.} =
   var tList = objList.map(proc(obj:Object): CollPoint = 
     if obj == currObj: nil
     else: obj.collision(ray))
 
   tList.sort(proc (t0, t1: CollPoint): int =
-    if t0 == nil : 1 elif t1 == nil: 1 else: system.cmp[float](t0.t, t1.t))
+    if t0 == nil : 1 elif t1 == nil: -1 else: system.cmp[float](t0.t, t1.t))
 
   var hitPoint: CollPoint
   if tList[0] == nil: # hit background

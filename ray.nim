@@ -21,11 +21,11 @@ var objList = newSeq[Object]()
 var lightList = newSeq[Light]()
 
 ## --- Insert Lights
-lightList.add(AmbLight(intensity: 0.6))
+lightList.add(AmbLight(intensity: 0.1))
 discard """lightList.add(PointLight(intensity: 1.0, 
                          point:vector3d(5.0, -5.0, 0.0),
                          atten_coef:0.001))"""
-var way0 = vector3d(-1.0, 2.0, -1.0)
+var way0 = vector3d(0.2, -1.0, 0.0)
 way0.normalize()
 lightList.add(AreaLight(intensity:1.0, way:way0))
 
@@ -50,8 +50,11 @@ let mat_turq =
 
 let sphere0 = 
   Sphere (radius:5.0, center:vector3d(0.0, 0.0, 0.0), material: mat_emerald)
+let sphere1 =
+  Sphere (radius:2.0, center:vector3d(0.0, 8.0, 0.0), material: mat_turq)
 
 objList.add(sphere0)
+objList.add(sphere1)
 
 ## --- Generate BMP files ---
 for x in 0..(width - 1):
@@ -67,3 +70,7 @@ for x in 0..(width - 1):
       raise
 
 writeToBMP(surf, "ray.bmp")
+
+
+
+
