@@ -8,6 +8,7 @@ import graphics
 const BOUND_MAX* = 7
 const INTENSITY_MIN* = 0.0001
 const textBoxSize* = 28.0
+const PERTUBE = 0.05
 
 type 
   Col* = tuple[r:float, g:float, b:float]
@@ -198,13 +199,29 @@ method evalColor* (obj: Sphere, ray: Ray, collPoint: CollPoint,
       ret_col += light.lightColor(ray, collPoint)
   
   if ray.bound_no >= BOUND_MAX: return ret_col
-
+  let ref_way = ray.way - 2*ray.way.dot(collPoint.norm) * collPoint.norm
+  let (ux_seed, uy_seed) = (random(1.0), random(1.0))
+  var u = vector3d(ux_seed, uy_seed, -(ref_way.x * ux_seed + ref_way.y * uy_seed)/ref_way.z)
+  var v = ref_way.cross(u)
+  u.normalize()
+  v.normalize()
   # Specular Reflection
-  var ref_ray = Ray(center: collPoint.point, way: ray.way - 2*ray.way.dot(collPoint.norm) * collPoint.norm, 
+  #let ref_ray1 = Ray(center: collPoint.point, way: ref_way + PERTUBE * ((0.5 - random(1.0)) * u + (0.5 - random(1.0)) * v), 
+  #                   refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  let ref_ray1 = Ray(center: collPoint.point, way: ref_way + PERTUBE * (random(0.5) * u + random(0.5) * v), 
                     refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
-  
+  let ref_ray2 = Ray(center: collPoint.point, way: ref_way + PERTUBE * (random(0.5) * u + -random(0.5) * v), 
+                    refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  let ref_ray3 = Ray(center: collPoint.point, way: ref_way + PERTUBE * (-random(0.5) * u + random(0.5) * v), 
+                    refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
+  let ref_ray4 = Ray(center: collPoint.point, way: ref_way + PERTUBE * (-random(0.5) * u + -random(0.5) * v), 
+                    refrac_n: ray.refrac_n, bound_no: ray.bound_no + 1)
   #if obj.material.is_trans == false:
-  ret_col += obj.material.specular * ref_ray.rayToColor(objList, lightList, obj)
+  #ret_col += obj.material.specular * ref_ray.rayToColor(objList, lightList, obj)
+  ret_col += obj.material.specular * (ref_ray1.rayToColor(objList, lightList, obj) +
+                                      ref_ray2.rayToColor(objList, lightList, obj) +
+                                      ref_ray3.rayToColor(objList, lightList, obj) +
+                                      ref_ray4.rayToColor(objList, lightList, obj)) / 4.0
   discard """else:  # Specular Refraction
     var ray_norm = ray.way
     ray_norm.normalize()
